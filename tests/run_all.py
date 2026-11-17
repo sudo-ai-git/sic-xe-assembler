@@ -31,14 +31,26 @@ EXPECT = {
     "test_shift.svl":  "PRINT_INT: A = 4",
     "test_array.svl":  "PRINT_INT: A = 150",
     "test_expr2.svl":  "PRINT_INT: A = 6",
+    "test_assert.svl": "PRINT_INT: A = 5",
+    "test_compound.svl": "PRINT_INT: A = 4",
+    # file I/O round trip: 9 bytes written, 9 read back, first word 72
+    "test_fileio.svl": ["PRINT_INT: A = 9", "PRINT_INT: A = 72"],
     # bubble sort must print the whole sorted sequence, in order
     "test_sort.svl":   ["PRINT_INT: A = 1", "PRINT_INT: A = 2",
                         "PRINT_INT: A = 3", "PRINT_INT: A = 4",
                         "PRINT_INT: A = 5"],
 }
 
+# A failing assert must report and halt; the statement after it must NOT run.
+EXPECT_ABSENT = {
+    "test_assert_fail.svl": ("ASSERT FAILED", "PRINT_INT: A = 9"),
+}
+
 # Files that are linker inputs, not standalone programs
 LINK_INPUTS = {"test_utils.svl", "test_main2.svl"}
+
+# Side-effect files to clear before running
+CLEAN = ["/tmp/svl_io_test.txt"]
 
 
 def run(cmd, **kw):
@@ -47,6 +59,26 @@ def run(cmd, **kw):
 
 def main():
     failures = []
+    for f in CLEAN:
+        try:
+            Path(f).unlink()
+        except FileNotFoundError:
+            pass
+
+    for name, present, absent in [
+            (n, present, absent)
+            for n, (present, absent) in EXPECT_ABSENT.items()]:
+        r = run([sys.executable, "svl_to_sic.py", str(HERE / name)])
+        out = r.stdout + r.stderr
+        if r.returncode != 0:
+            failures.append((name, f"exit {r.returncode}"))
+        elif present not in out:
+            failures.append((name, f"expected {present!r}"))
+        elif absent in out:
+            failures.append((name, f"{absent!r} ran despite the failed assert"))
+        else:
+            print(f"  PASS {name}")
+
     for name, markers in EXPECT.items():
         if isinstance(markers, str):
             markers = [markers]
