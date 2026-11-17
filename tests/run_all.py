@@ -40,6 +40,7 @@ EXPECT = {
     "test_multimod.svl": ["PRINT_INT: A = 42", "PRINT_INT: A = 12"],
     "test_stackok.svl": "PRINT_INT: A = 0",
     "test_stackof.svl": "STACK OVERFLOW",
+    "test_arrparam.svl": ["PRINT_INT: A = 6", "PRINT_INT: A = 36"],
     # bubble sort must print the whole sorted sequence, in order
     "test_sort.svl":   ["PRINT_INT: A = 1", "PRINT_INT: A = 2",
                         "PRINT_INT: A = 3", "PRINT_INT: A = 4",
@@ -108,11 +109,12 @@ def main():
     for name in sorted(LINK_INPUTS):
         print(f"  skip {name} (link input)")
 
-    r = run([sys.executable, str(HERE / "test_multifile.py")])
-    if r.returncode != 0:
-        failures.append(("test_multifile.py", r.stdout + r.stderr))
-    else:
-        print("  PASS test_multifile.py")
+    for script in ("test_multifile.py", "test_arrlink.py"):
+        r = run([sys.executable, str(HERE / script)])
+        if r.returncode != 0:
+            failures.append((script, r.stdout + r.stderr))
+        else:
+            print(f"  PASS {script}")
 
     print()
     if failures:
