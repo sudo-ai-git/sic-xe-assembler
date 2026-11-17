@@ -30,6 +30,11 @@ EXPECT = {
     "test_full.svl":   "PRINT: 'Done",
     "test_shift.svl":  "PRINT_INT: A = 4",
     "test_array.svl":  "PRINT_INT: A = 150",
+    "test_expr2.svl":  "PRINT_INT: A = 6",
+    # bubble sort must print the whole sorted sequence, in order
+    "test_sort.svl":   ["PRINT_INT: A = 1", "PRINT_INT: A = 2",
+                        "PRINT_INT: A = 3", "PRINT_INT: A = 4",
+                        "PRINT_INT: A = 5"],
 }
 
 # Files that are linker inputs, not standalone programs
@@ -42,15 +47,26 @@ def run(cmd, **kw):
 
 def main():
     failures = []
-    for name, marker in EXPECT.items():
+    for name, markers in EXPECT.items():
+        if isinstance(markers, str):
+            markers = [markers]
         r = run([sys.executable, "svl_to_sic.py", str(HERE / name)])
         out = r.stdout + r.stderr
         if r.returncode != 0:
             failures.append((name, f"exit {r.returncode}: {out.strip().splitlines()[-1] if out.strip() else ''}"))
-        elif marker not in out:
-            failures.append((name, f"marker {marker!r} not found"))
         else:
-            print(f"  PASS {name}")
+            pos = 0
+            missing = None
+            for m in markers:
+                i = out.find(m, pos)
+                if i < 0:
+                    missing = m
+                    break
+                pos = i + len(m)
+            if missing is not None:
+                failures.append((name, f"marker {missing!r} not found in order"))
+            else:
+                print(f"  PASS {name}")
 
     for name in sorted(LINK_INPUTS):
         print(f"  skip {name} (link input)")
