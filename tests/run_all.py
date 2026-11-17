@@ -29,6 +29,7 @@ EXPECT = {
     "test_min2.svl":   "A = 000003",
     "test_full.svl":   "PRINT: 'Done",
     "test_shift.svl":  "PRINT_INT: A = 4",
+    "test_array.svl":  "PRINT_INT: A = 150",
 }
 
 # Files that are linker inputs, not standalone programs
