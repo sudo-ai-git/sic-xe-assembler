@@ -1,0 +1,9 @@
+module m {
+  func main() type void {
+    let i: int = 0
+    while i < 5 {
+      let i: int = i + 1
+    }
+    return
+  }
+}

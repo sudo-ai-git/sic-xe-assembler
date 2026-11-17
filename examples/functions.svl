@@ -1,0 +1,11 @@
+module m {
+  func add(a: int, b: int) type int {
+    let r: int = a + b
+    return r
+  }
+
+  func main() type void {
+    let s: int = add(3, 4)
+    return
+  }
+}

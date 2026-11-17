@@ -1,0 +1,11 @@
+module m {
+  func main() type void {
+    let x: int = 1
+    let y: int = 2
+    let a: int = x & y
+    let o: int = x | y
+    let xr: int = x ^ y
+    let n: int = ~x
+    return
+  }
+}

@@ -1,0 +1,9 @@
+module m {
+  func main() type void {
+    let x: int = 1
+    let y: int = 2
+    let l: int = x << 1
+    let r: int = y >> 1
+    return
+  }
+}
