@@ -35,6 +35,9 @@ EXPECT = {
     "test_compound.svl": "PRINT_INT: A = 4",
     # file I/O round trip: 9 bytes written, 9 read back, first word 72
     "test_fileio.svl": ["PRINT_INT: A = 9", "PRINT_INT: A = 72"],
+    "test_recurse.svl": ["PRINT_INT: A = 120", "PRINT_INT: A = 3628800"],
+    "test_nestcall.svl": ["PRINT_INT: A = 10", "PRINT_INT: A = 21"],
+    "test_multimod.svl": ["PRINT_INT: A = 42", "PRINT_INT: A = 12"],
     # bubble sort must print the whole sorted sequence, in order
     "test_sort.svl":   ["PRINT_INT: A = 1", "PRINT_INT: A = 2",
                         "PRINT_INT: A = 3", "PRINT_INT: A = 4",
