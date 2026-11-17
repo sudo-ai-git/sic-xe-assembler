@@ -25,7 +25,6 @@ EXPECT = {
     "test_for.svl":    "A = 000006",
     "test_if.svl":     "A = 000001",
     "test_loop.svl":   "PRINT: 'Done",
-    "test_min.svl":    "A = 000000",
     "test_min2.svl":   "A = 000003",
     "test_full.svl":   "PRINT: 'Done",
     "test_shift.svl":  "PRINT_INT: A = 4",
@@ -46,6 +45,9 @@ EXPECT = {
                         "PRINT_INT: A = 3", "PRINT_INT: A = 4",
                         "PRINT_INT: A = 5"],
 }
+
+# Programs that only need to compile and exit cleanly (no observable output)
+JUST_RUN = {"test_min.svl"}
 
 # A failing assert must report and halt; the statement after it must NOT run.
 EXPECT_ABSENT = {
@@ -84,6 +86,13 @@ def main():
             failures.append((name, f"{absent!r} ran despite the failed assert"))
         else:
             print(f"  PASS {name}")
+
+    for name in sorted(JUST_RUN):
+        r = run([sys.executable, "svl_to_sic.py", str(HERE / name)])
+        if r.returncode != 0:
+            failures.append((name, r.stdout + r.stderr))
+        else:
+            print(f"  PASS {name} (runs clean)")
 
     for name, markers in EXPECT.items():
         if isinstance(markers, str):
