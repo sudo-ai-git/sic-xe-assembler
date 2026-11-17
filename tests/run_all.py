@@ -38,6 +38,8 @@ EXPECT = {
     "test_recurse.svl": ["PRINT_INT: A = 120", "PRINT_INT: A = 3628800"],
     "test_nestcall.svl": ["PRINT_INT: A = 10", "PRINT_INT: A = 21"],
     "test_multimod.svl": ["PRINT_INT: A = 42", "PRINT_INT: A = 12"],
+    "test_stackok.svl": "PRINT_INT: A = 0",
+    "test_stackof.svl": "STACK OVERFLOW",
     # bubble sort must print the whole sorted sequence, in order
     "test_sort.svl":   ["PRINT_INT: A = 1", "PRINT_INT: A = 2",
                         "PRINT_INT: A = 3", "PRINT_INT: A = 4",
