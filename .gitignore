@@ -1,0 +1,3 @@
+*.obj
+*.sym
+__pycache__/

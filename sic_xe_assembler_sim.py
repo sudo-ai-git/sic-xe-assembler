@@ -31,10 +31,11 @@ OPTAB = {
     "MUL":  ("20", 3), "MULF":  ("60", 3), "DIV":  ("24", 3), "DIVF":  ("64", 3),
     "COMP":  ("28", 3), "COMPF":  ("88", 3), "TIX":  ("2C", 3),
     "J":  ("3C", 3), "JLT":  ("38", 3), "JEQ":  ("30", 3), "JGT":  ("34", 3),
-    "JLE":  ("40", 3), "JNE":  ("44", 3), "JGE":  ("48", 3),
+    "JLE":  ("50", 3), "JNE":  ("54", 3), "JGE":  ("48", 3),
     "JSUB":  ("4B", 3), "RSUB":  ("4F", 3),
     "AND":  ("40", 3), "OR":  ("44", 3), "SHIFTL":  ("A8", 3), "SHIFTR":  ("AC", 3),
     "SVC":  ("B0", 3), "TD":  ("E0", 3), "RD":  ("D8", 3), "WD":  ("DC", 3),
+    "STL":  ("90", 3), "LDL":  ("94", 3),  # store/load L register (for return-addr save/restore)
     # SIC/XE extensions (format 4 with +)
     "+LDA":  ("00", 4), "+LDX":  ("04", 4), "+STA":  ("0C", 4), "+STX":  ("10", 4),
     "+ADD":  ("18", 4), "+SUB":  ("1C", 4), "+MUL":  ("20", 4), "+DIV":  ("24", 4),
@@ -166,9 +167,11 @@ class Assembler:
 
         # Format 4 with explicit +
         if op.startswith("+"):
+            if op in OPTAB:
+                return OPTAB[op][1]  # +JSUB -> format 4, etc.
             base = op[1:]
             if base in OPTAB:
-                return OPTAB[base][1]
+                return 4  # format 4 instructions are always 4 bytes
             return None
 
         # RSUB is always format 3 (no operand)
@@ -325,8 +328,8 @@ class Assembler:
             # already have 11 in the bottom 2 bits — those are part of the opcode, not
             # addressing mode — so use them as-is.
             ni_val = int(n_i, 2)
-            if op in ("JSUB", "RSUB"):
-                opcode_byte = opcode_byte  # already complete
+            if op in ("JSUB", "RSUB", "JGE"):
+                opcode_byte = opcode_byte  # already complete (jump instructions don't use ni bits)
             else:
                 opcode_byte = opcode_byte | ni_val
 
@@ -454,6 +457,7 @@ class Simulator:
         self.running = False
         self.trace = []                       # execution trace lines
         self.max_steps = 100000
+        self._open_files = {}               # fd -> file object for SVC I/O
 
     def load_object_code(self, code_entries, start_address):
         """code_entries: list of (address, hex_string, is_format4)."""
@@ -480,7 +484,7 @@ class Simulator:
 
         # --- Parse H record for start address ---
         h_rec = records["H"]
-        m = re.match(r"H\^(.{6})\^([0-9A-Fa-f]{6})\^([0-9A-Fa-f]{6})$", h_rec)
+        m = re.match(r"H\^([A-Za-z0-9_]{1,8})\^([0-9A-Fa-f]{6})\^([0-9A-Fa-f]{6})$", h_rec)
         if not m:
             raise ValueError(f"Malformed H record: {h_rec}")
         start_address = int(m.group(2), 16)
@@ -637,6 +641,132 @@ class Simulator:
             self.pc = self.regs["L"]
             return self.regs["L"], trace_line, False
 
+        # SVC handler at 0xFF06 (65286): system call dispatcher
+        # SVC number read from memory location 0xFF07
+        # A = arg1, X = arg2, TMP0 = arg3
+        #   0: print_char (A = char)
+        #   1: print_string (A = address of null-terminated string)
+        #   2: read_char (returns char in A)
+        #   3: open_file (A = address of filename, returns fd in A)
+        #   4: read_file (A = fd, X = buffer addr, TMP0 = count, returns bytes read in A)
+        #   5: write_file (A = fd, X = buffer addr, TMP0 = count, returns bytes written in A)
+        #   6: close_file (A = fd)
+        #   7: exit (A = exit code)
+        if self.pc == 65286:
+            svc_num = self.memory.read_byte(0xFF07)
+            if svc_num == 0:  # print_char
+                ch = self.regs["A"] & 0xFF
+                trace_line += f"SVC putchar: {chr(ch) if 32 <= ch < 127 else f'\\\\x{ch:02x}'}"
+                self.regs["PC"] = self.regs["L"]
+                self.pc = self.regs["L"]
+                return self.regs["L"], trace_line, False
+            elif svc_num == 1:  # print_string
+                addr = self.regs["A"]
+                chars = []
+                while True:
+                    b = self.memory.read_byte(addr)
+                    if b == 0:
+                        break
+                    chars.append(chr(b))
+                    addr += 1
+                output = "".join(chars)
+                trace_line += f"SVC puts: {output!r}"
+                self.regs["PC"] = self.regs["L"]
+                self.pc = self.regs["L"]
+                return self.regs["L"], trace_line, False
+            elif svc_num == 2:  # read_char
+                import sys as _sys
+                ch_data = _sys.stdin.read(1)
+                ch = ord(ch_data) if ch_data else -1
+                self.regs["A"] = ch & 0xFF
+                trace_line += f"SVC getchar: A = {ch}"
+                self.regs["PC"] = self.regs["L"]
+                self.pc = self.regs["L"]
+                return self.regs["L"], trace_line, False
+            elif svc_num == 3:  # open_file
+                addr = self.regs["A"]
+                fname = []
+                while True:
+                    b = self.memory.read_byte(addr)
+                    if b == 0:
+                        break
+                    fname.append(chr(b))
+                    addr += 1
+                fname_str = "".join(fname)
+                try:
+                    f = open(fname_str, "r")
+                    fd = id(f) & 0xFFFF
+                    self._open_files[fd] = f
+                    self.regs["A"] = fd
+                    trace_line += f"SVC open: {fname_str!r} -> fd {fd}"
+                except FileNotFoundError:
+                    self.regs["A"] = -1 & 0xFFFF
+                    trace_line += f"SVC open: {fname_str!r} -> not found"
+                self.regs["PC"] = self.regs["L"]
+                self.pc = self.regs["L"]
+                return self.regs["L"], trace_line, False
+            elif svc_num == 4:  # read_file
+                fd = self.regs["A"]
+                buf_addr = self.regs["X"]
+                count = self.memory.read_byte(self.alloc_var("svc_count") if hasattr(self, 'alloc_var') else 0x1000)
+                # Actually count is stored at TMP0 which is at a fixed location
+                # Let's read count from memory location right after buf_addr
+                count = self.memory.read_byte(buf_addr + 1)
+                if fd not in self._open_files:
+                    self.regs["A"] = -1 & 0xFFFF
+                    trace_line += f"SVC read: fd {fd} not open"
+                    self.regs["PC"] = self.regs["L"]
+                    self.pc = self.regs["L"]
+                    return self.regs["L"], trace_line, False
+                f = self._open_files[fd]
+                data = f.read(min(count, 256))
+                for i, b in enumerate(data):
+                    self.memory.write_byte(buf_addr + i, b)
+                self.regs["A"] = len(data)
+                trace_line += f"SVC read: fd {fd} -> {len(data)} bytes"
+                self.regs["PC"] = self.regs["L"]
+                self.pc = self.regs["L"]
+                return self.regs["L"], trace_line, False
+            elif svc_num == 5:  # write_file
+                fd = self.regs["A"]
+                buf_addr = self.regs["X"]
+                count_addr = buf_addr + 1
+                count = self.memory.read_byte(count_addr)
+                data = bytes([self.memory.read_byte(buf_addr + i) for i in range(count)])
+                if fd not in self._open_files:
+                    self.regs["A"] = -1 & 0xFFFF
+                    trace_line += f"SVC write: fd {fd} not open"
+                    self.regs["PC"] = self.regs["L"]
+                    self.pc = self.regs["L"]
+                    return self.regs["L"], trace_line, False
+                f = self._open_files[fd]
+                f.write(data)
+                self.regs["A"] = count
+                trace_line += f"SVC write: fd {fd} -> {count} bytes"
+                self.regs["PC"] = self.regs["L"]
+                self.pc = self.regs["L"]
+                return self.regs["L"], trace_line, False
+            elif svc_num == 6:  # close_file
+                fd = self.regs["A"]
+                if fd in self._open_files:
+                    self._open_files[fd].close()
+                    del self._open_files[fd]
+                    self.regs["A"] = 0
+                    trace_line += f"SVC close: fd {fd}"
+                else:
+                    self.regs["A"] = -1 & 0xFFFF
+                    trace_line += f"SVC close: fd {fd} not open"
+                self.regs["PC"] = self.regs["L"]
+                self.pc = self.regs["L"]
+                return self.regs["L"], trace_line, False
+            elif svc_num == 7:  # exit
+                code = self.regs["A"]
+                trace_line += f"SVC exit: code {code}"
+                return self.pc, trace_line, True
+            else:
+                trace_line += f"SVC unknown: {svc_num}"
+                return self.pc, trace_line, True
+
         # Special-case JSUB and RSUB using the full byte1 value,
         # since JSUB (0x4B) and JGE (0x48) share the same top 6 bits.
         if byte1 == 0x4B:  # JSUB
@@ -681,6 +811,20 @@ class Simulator:
             trace_line += f"mem[{ta:06X}] <- {reg_name} = {val:06X}{idx_note}"
             self.pc = new_pc
             return new_pc, trace_line, False
+        if mnemonic == "STL":
+            # Store L register to memory at TA (3 bytes, big-endian)
+            l_val = self.regs["L"]
+            self._write_word(ta, l_val)
+            trace_line += f"L -> mem[{ta:06X}] = {l_val:06X}"
+            self.pc = new_pc
+            return new_pc, trace_line, False
+        if mnemonic == "LDL":
+            # Load L register from memory at TA (3 bytes, big-endian)
+            l_val = self._read_target_value(ta, ni)
+            self.regs["L"] = l_val & 0xFFFFFF
+            trace_line += f"L <- mem[{ta:06X}] = {self.regs['L']:06X}"
+            self.pc = new_pc
+            return new_pc, trace_line, False
 
         if mnemonic == "ADD":
             val = self._read_target_value(ta, ni)
@@ -701,6 +845,14 @@ class Simulator:
                 return new_pc, trace_line, True
             self.regs["A"] = (self.regs["A"] // val) & 0xFFFFFF
             trace_line += f"A <- A / mem[{ta:06X}] = {self.regs['A']:06X}"
+        elif mnemonic == "AND":
+            val = self._read_target_value(ta, ni)
+            self.regs["A"] = (self.regs["A"] & val) & 0xFFFFFF
+            trace_line += f"A <- A & mem[{ta:06X}] = {self.regs['A']:06X}"
+        elif mnemonic == "OR":
+            val = self._read_target_value(ta, ni)
+            self.regs["A"] = (self.regs["A"] | val) & 0xFFFFFF
+            trace_line += f"A <- A | mem[{ta:06X}] = {self.regs['A']:06X}"
         elif mnemonic == "COMP":
             val = self._read_target_value(ta, ni)
             a = self.regs["A"]
@@ -735,6 +887,24 @@ class Simulator:
                 trace_line += f"JGT taken -> {ta:06X}"
                 return ta, trace_line, False
             trace_line += "JGT not taken"
+        elif mnemonic == "JLE":
+            if self.regs["SW"] in (0, 1):  # equal or less
+                self.pc = ta
+                trace_line += f"JLE taken -> {ta:06X}"
+                return ta, trace_line, False
+            trace_line += "JLE not taken"
+        elif mnemonic == "JNE":
+            if self.regs["SW"] != 0:  # not equal
+                self.pc = ta
+                trace_line += f"JNE taken -> {ta:06X}"
+                return ta, trace_line, False
+            trace_line += "JNE not taken"
+        elif mnemonic == "JGE":
+            if self.regs["SW"] in (0, 2):  # equal or greater
+                self.pc = ta
+                trace_line += f"JGE taken -> {ta:06X}"
+                return ta, trace_line, False
+            trace_line += "JGE not taken"
         elif mnemonic == "TIX":
             val = self.regs["X"]
             self.regs["X"] = (self.regs["X"] + 1) & 0xFFFFFF
